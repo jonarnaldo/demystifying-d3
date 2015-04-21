@@ -5,39 +5,41 @@
   <title>The Wealth & Health of Nations</title>
   <link rel="stylesheet" type="text/css" href="styles/base.css">
   <style type="text/css">
-    body {
-      position: relative;
+    table.world-data {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 14px;
+      border: none;
     }
 
-    .big-year {
-      position: absolute;
-      top: 0;
-      right: 0;
-      font-size: 60px;
-      font-family: sans-serif;
-      line-height: 60px;
-      color: darkgrey;
+    table.world-data th {
+      text-align: left;
+      text-transform: capitalize;
+      font-weight: bold;
+      padding: 5px;
+      border-bottom: 1px solid #7B7B7B;
     }
 
-    circle.nation {
-      stroke-width: 0.75px;
-      stroke: black;
+    tr.nation td {
+      padding: 5px;
     }
 
-    text {
-      font: 10px sans-serif;
+    tr.nation td.name {
+      width: 240px;
     }
 
-    .axis path, .axis line {
-      fill: none;
-      stroke: #000;
-      shape-rendering: crispEdges;
+    tr.nation td.region {
+      width: 200px;
     }
 
+    tr.nation td.population {
+      width: 100px;
+      text-align: right;
+    }
   </style>
 </head>
 <body>
-  <h2>Moving through time</h2>
+
+  <h2>Binding data to HTML elements</h2>
 
   <!-- libraries -->
   <script src="js/d3.v3.min.js"></script>
@@ -45,224 +47,101 @@
   <!-- main script -->
   <script>
 
-  // define global variables
-  var nations;
-  var margin = { top : 5, right : 0, bottom : 25, left: 19.5 };
-  var width = 960 - margin.left - margin.right;
-  var height = 600 - margin.top - margin.bottom;
-  var startYear = 1820;
-  var finalYear = 2008;
-  var currentYear = startYear;
-  var indicators = ["income", "lifeExpectancy", "population"];
-  var updateInterval = 150;
-
-  // make a nation-based color scale
-  var nationColors = d3.scale.category10();
-
-  // define scales mapping income and life expectancy to x and y position
-  var incomeX = d3.scale.log().range([0, width]),
-      lifeY = d3.scale.linear().range([height, 0]),
-      populationR = d3.scale.sqrt().range([1, 40]);
-
-  // define axis helpers for x & y
-  var xAxis = d3.svg.axis()
-        .orient("bottom")
-        .ticks(12, d3.format(",d")),
-      yAxis = d3.svg.axis()
-        .orient("left");
-
   // select the body element a la jquery
   var body = d3.select("body");
 
-  // create some svg elements to hold our chart
-  var svg = body.append("svg")
-              .attr("height", height + margin.top + margin.bottom)
-              .attr("width", width + margin.left + margin.right);
-
-  var chart = svg.append("g")
-                .attr("transform", "translate("+margin.left+","+margin.top+")");
-
-  var circleGroup = chart.append("g").attr("class", "circles");
-
-  // append a div that will display the current year (in big font!)
-  var yearField = body.append("div").attr("class","big-year");
-
   // load the data, calling back our handler function when ready
-  d3.json("data/nation_stats.json", function(items){
-    // store items for future reference
-    nations = items;
+  d3.json("data/nation_stats.json", function(nations){
+    // organize nations by region
+    var regions = byRegion(nations);
+    calcPopulations(nations);
+    makeTable(regions);
+  })
 
-    // set domain for color scale based on list of possible regions
-    nationColors.domain(calcRegions(nations));
-
-    // set domains for x and y scales based on the min and max values
-    // of income and life expectancy indicators across all nations and years
-    incomeX.domain(calcExtents(nations, "income"));
-    lifeY.domain(calcExtents(nations, "lifeExpectancy")).nice();
-    populationR.domain(calcExtents(nations, "population")).nice();
-
-    createAxes();
-    displayData();
-  });
-
-  function calcCurrentValues(nations, indicators, year){
+  function calcPopulations(nations){
     nations.forEach(function(nation){
-      nation.current = {};
-      indicators.forEach(function(indicator){
-        nation.current[indicator] = getValueFor(nation, indicator, year);
-      });
-    });
-  }
+      var years = nation.population.length,
+          mostRecent = nation.population[years-1];
 
-  function getValueFor(nation, indicator, year){
-    var items = nation[indicator].filter(function(d){
-      return d.year == year;
-    });
-
-    return items.length ? items[0].value : null;
-  }
-
-  function calcRegions(nations) {
-    return d3.nest()
-
-      // aggregate all rows into groups using the region as the group
-      // key
-      .key(function(d) {
-        return d.region;
-      })
-
-      // pass our nation rows
-      .entries(nations)
-
-      // iterate over the results and collect all the group keys, which
-      // map to our region names.
-      .map(function(d) {
-        return d.key;
-      });
-  }
-
-  function calcExtents(nations, indicator){
-
-    // get all indicator values for all nations into a single array
-    var allValues = nations.map(function(d){
-      return d[indicator];
-    }).reduce(function(values, current){
-       return values.concat(current)
-    }, []);
-
-    // return the extents
-    return d3.extent(allValues, function(d){ return d.value });
-  }
-
-  function createAxes() {
-    // set the scales on our axes, now that we have their domain ready.
-    xAxis.scale(incomeX);
-    yAxis.scale(lifeY);
-
-    // container for the x axis
-    chart.append("g")
-      .attr("class", "x axis")
-      .attr("transform", "translate(0, " + height + ")")
-      .call(xAxis);
-
-    // container for the y axis
-    chart.append("g")
-      .attr("class", "y axis")
-      .call(yAxis);
-  }
-
-  function plotCircles(nations) {
-    // determine which nations have valid data for this year
-    var validNations = nations.filter(function(d){
-      return d.current.income
-          && d.current.lifeExpectancy
-          && d.current.population;
-    });
-
-    // bind valid nation data to a d3 selection
-    var nationCircles = circleGroup.selectAll(".nation")
-      .data(validNations, function(d){
-        return d.name;
-      });
-
-    var newCircles = nationCircles.enter(),
-        oldCircles = nationCircles.exit();
-
-
-    // append a circle for every entering element
-    newCircles
-      .append("circle")
-      .classed("nation", true)
-      .attr("r", 1e-8)
-      .style("fill-opacity", 1e-8)
-      .style("fill", function(d) {
-        return nationColors(d.region);
-      });
-
-    nationCircles
-      .sort(function(a, b) {
-        return populationR(b.current.population) - populationR(a.current.population);
-      })
-      .transition()
-      .duration(updateInterval)
-      .attr("r", function(d) {
-        return populationR(d.current.population);
-      })
-      .attr("cx", function(d){
-        return incomeX(d.current.income);
-      })
-      .attr("cy", function(d) {
-        return lifeY(d.current.lifeExpectancy);
-      })
-      .style("fill-opacity", 1);
-
-    oldCircles
-      .transition()
-      .duration(updateInterval * 2/3)
-      .attr("r", 1e-8)
-      .style("fill-opacity", 1e-8)
-      .remove();
-  }
-
-  function displayData(){
-    // update year field
-    yearField.text(currentYear);
-
-    // calculate values for current year
-    calcCurrentValues(nations, indicators, currentYear);
-
-    // plot the current state of the scatterplot
-    plotCircles(nations);
-
-    // until we reach the final year, advance year
-    // and call this function again after the desired interval
-    if (++currentYear <= finalYear) {
-      setTimeout(displayData, updateInterval);
-    } else {
-      svg.selectAll(".nation").call(addInteractivity);
-    }
-  }
-
-  function addInteractivity(){
-    var circles = this;
-
-    circles.on("click", function(current){
-      var currentCircle = d3.select(this);
-
-      nations.forEach(function(d){
-        if (d != current) d.active = false;
-      })
-
-      current.active = !current.active;
-
-      circles
-        .style("stroke-width", function(d){
-          return d === current && d.active ? 5 : 0.5;
-        })
-        .style("opacity", function(d){ 
-          return current.active && d.region !== current.region ? 0.2 : 1;
-        });
+      nation["population"] = mostRecent.value;
     })
+  }
+
+  function byRegion (nations) {
+    var regions = d3.nest()
+      .key(function (d) { return d.region })
+      .entries(nations)
+    return regions;
+  }
+
+  function makeTable(regions){
+    console.log(regions)
+    // create an empty table element
+    var table = body.append("table").attr("class", "world-data");
+
+    // the names of the fields we want to include in the table
+    var columns = ["region","name","population"];
+
+    // first row contains headings
+    var headings = table.append("tr").attr("class", "headings");
+
+
+    // add header cells for each column name
+    headings
+      .selectAll("th")
+      .data(columns)
+    .enter()
+      .append("th")
+      .text(function(d){
+        return d;
+      });
+
+    // create a selection containing the rows that are be bound to our data
+    // n.b. at this point, this is a placeholder set with no items in it!
+    var rows = table.selectAll("tr.nation").data(regions, function(d){
+      return d.name;
+    });
+
+    var regionTable = table.selectAll("tr.region")
+          .data(regions)
+          .enter().append("tr")
+
+    // add region column
+    regionTable.append("td")
+          .style("font-weight","bold")
+          .style("vertical-align","top")
+          .attr("class","region")
+          .text(function (d) {
+            return d.key;
+          })
+
+    // add Name column
+    var name = regionTable.append("td")
+                          .attr("class","name")
+
+    name.selectAll("div.name")
+                .data(function(d) {
+                  return d.values
+                })
+                .enter().append("div")
+                .attr("class", "name")
+                .text(function (d) {
+                  return d.name
+                })
+
+    var population = regionTable.append("td")
+                                .attr("class","population")
+
+    // add population column
+    population.selectAll("div.population")
+                .data(function(d) {
+                  return d.values
+                })
+                .enter().append("div")
+                .attr("class", "population")
+                .text(function (d) {
+                  return d.population
+                })
   }
 
   </script>
